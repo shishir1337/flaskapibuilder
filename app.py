@@ -58,7 +58,7 @@ def dashboard():
         return jsonify({'message': 'Authorization header is missing!'}), 401
 
 # create a new user
-@app.route('/users', methods=['POST'])
+@app.route('/signup', methods=['POST'])
 def create_user():
     data = request.get_json()
     new_user = User(
