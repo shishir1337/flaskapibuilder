@@ -28,6 +28,8 @@ class User(db.Model):
     username = db.Column(db.String(50), unique=True)
     password = db.Column(db.String(100))
     api_key = db.Column(db.String(100), unique=True)
+    api_name = db.Column(db.String(50))
+
 
 
 # create tables
@@ -39,19 +41,27 @@ with app.app_context():
 @app.route('/users', methods=['POST'])
 def create_user():
     data = request.get_json()
-    new_user = User(username=data['username'], password=data['password'], api_key=str(uuid.uuid4()))
+    new_user = User(
+        username=data['username'],
+        password=data['password'],
+        api_key=str(uuid.uuid4()),
+        api_name=data['api_name']
+    )
     db.session.add(new_user)
     db.session.commit()
-    return jsonify({'message': 'New user created!', 'api_key': new_user.api_key})
-    
+    return jsonify({
+        'message': 'New user created!',
+        'api_key': new_user.api_key,
+        'api_name': new_user.api_name
+    })
 
 # get all notes for a specific user
-@app.route('/notes', methods=['GET'])
-def get_all_notes():
+@app.route('/<api_name>/notes', methods=['GET'])
+def get_all_notes(api_name):
     api_key = request.headers.get('api_key')
     if not api_key:
         return jsonify({'message': 'Missing API key!'}), 401
-    user = User.query.filter_by(api_key=api_key).first()
+    user = User.query.filter_by(api_key=api_key, api_name=api_name).first()
     if not user:
         return jsonify({'message': 'Invalid API key!'}), 401
     notes = Note.query.filter_by(user_id=user.id).all()
@@ -61,9 +71,10 @@ def get_all_notes():
         output.append(note_data)
     return jsonify({'notes': output})
 
+
 # get a specific note for a specific user
-@app.route('/notes/<note_id>', methods=['GET'])
-def get_note_by_id(note_id):
+@app.route('/<api_name>/notes/<note_id>', methods=['GET'])
+def get_note_by_id(api_name, note_id):
     api_key = request.headers.get('api_key')
     if not api_key:
         return jsonify({'message': 'Missing API key!'}), 401
@@ -76,9 +87,10 @@ def get_note_by_id(note_id):
     note_data = {'id': note.id, 'title': note.title, 'content': note.content, 'created_at': note.created_at}
     return jsonify({'note': note_data})
 
+
 # create a new note for a specific user
-@app.route('/notes', methods=['POST'])
-def create_note():
+@app.route('/<api_name>/notes', methods=['POST'])
+def create_note(api_name):
     api_key = request.headers.get('api_key')
     if not api_key:
         return jsonify({'message': 'Missing API key!'}), 401
@@ -92,7 +104,7 @@ def create_note():
     return jsonify({'message': 'New note created!', 'note_id': new_note.id})
 
 # update an existing note for a specific user
-@app.route('/notes/<note_id>', methods=['PUT'])
+@app.route('/<api_name>/notes/<note_id>', methods=['PUT'])
 def update_note_by_id(note_id):
     api_key = request.headers.get('api_key')
     user = User.query.filter_by(api_key=api_key).first()
@@ -109,7 +121,7 @@ def update_note_by_id(note_id):
 
 
 # delete a note for a specific user
-@app.route('/notes/<note_id>', methods=['DELETE'])
+@app.route('/<api_name>/notes/<note_id>', methods=['DELETE'])
 def delete_note_by_id(note_id):
     api_key = request.headers.get('api_key')
     user = User.query.filter_by(api_key=api_key).first()
