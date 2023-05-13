@@ -3,6 +3,9 @@ from flask_sqlalchemy import SQLAlchemy
 import uuid
 import datetime
 import os
+from functools import wraps
+import jwt
+
 
 
 # initialize Flask app and SQLAlchemy go
@@ -36,6 +39,23 @@ class User(db.Model):
 with app.app_context():
     db.create_all()
 
+# dashboard
+@app.route('/dashboard', methods=['GET'])
+def dashboard():
+    auth_header = request.headers.get('Authorization')
+    if auth_header:
+        token = auth_header.split(" ")[1]
+        try:
+            payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+            user_id = payload['user_id']
+            # TODO: do something with the user_id to fetch user data from DB or perform some other action
+            return jsonify({'message': 'Welcome to your dashboard!'})
+        except jwt.ExpiredSignatureError:
+            return jsonify({'message': 'Token has expired!'}), 401
+        except (jwt.InvalidTokenError, Exception):
+            return jsonify({'message': 'Invalid token!'}), 401
+    else:
+        return jsonify({'message': 'Authorization header is missing!'}), 401
 
 # create a new user
 @app.route('/users', methods=['POST'])
@@ -54,6 +74,38 @@ def create_user():
         'api_key': new_user.api_key,
         'api_name': new_user.api_name
     })
+
+# authentication decorator
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({'message': 'Token is missing!'}), 401
+        try:
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+            current_user = User.query.filter_by(id=data['user_id']).first()
+        except:
+            return jsonify({'message': 'Token is invalid!'}), 401
+        return f(current_user, *args, **kwargs)
+    return decorated
+
+
+# login user
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.json
+    if not data or not data.get('username') or not data.get('password'):
+        return make_response('Invalid username or password', 401, {'WWW-Authenticate': 'Basic realm="Login required!"'})
+
+    user = User.query.filter_by(username=data['username']).first()
+    if not user or user.password != data['password']:
+        return make_response('Invalid username or password', 401, {'WWW-Authenticate': 'Basic realm="Login required!"'})
+
+    token = jwt.encode({'user_id': user.id, 'exp': datetime.datetime.utcnow() + datetime.timedelta(minutes=30)}, app.config['SECRET_KEY'])
+    return jsonify({'token': token})
+
+
 
 # get all notes for a specific user
 @app.route('/<api_name>/notes', methods=['GET'])
