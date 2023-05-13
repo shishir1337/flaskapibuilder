@@ -5,7 +5,7 @@ import datetime
 import os
 
 
-# initialize Flask app and SQLAlchemy
+# initialize Flask app and SQLAlchemy go
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'thisissecret'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(os.path.abspath(os.path.dirname(__file__)), 'notes.db')
