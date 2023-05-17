@@ -18,7 +18,7 @@ To log in as an existing user, send a POST request to the **/login** endpoint wi
 
 To create a new API, send a POST request to the **/create_api** endpoint with a JSON payload containing the desired API name, endpoints, and JSON schema. The endpoint will generate a unique API name and key for the user and store the API in the MongoDB database.
 
-**POST /create_api HTTP/1.1
+POST /create_api HTTP/1.1
 Content-Type: application/json
 Authorization: Bearer <access_token>
 
@@ -44,7 +44,7 @@ Authorization: Bearer <access_token>
     }
   }
 }
-**
+
 
 **Retrieving APIs**
 
