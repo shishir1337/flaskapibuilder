@@ -1,190 +1,282 @@
-from flask import Flask, request, jsonify, make_response
-from flask_sqlalchemy import SQLAlchemy
-import uuid
-import datetime
-import os
-from functools import wraps
-import jwt
+from flask import Flask, request, jsonify
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+from mongoengine import connect, Document, StringField
+from flask_pymongo import PyMongo
+from bson.objectid import ObjectId
+from werkzeug.security import generate_password_hash, check_password_hash
+from jsonschema import validate, ValidationError
+import random
+import string
+from bson import ObjectId
 
 
-
-# initialize Flask app and SQLAlchemy go
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'thisissecret'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(os.path.abspath(os.path.dirname(__file__)), 'notes.db')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
+app.config['MONGO_URI'] = 'mongodb://localhost:27017/mydatabase'
+app.config['JWT_SECRET_KEY'] = 'your_secret_key'  # Replace with your own secret key
+mongo = PyMongo(app)
+jwt = JWTManager(app)
 
+def validate_json(data, schema):
+    try:
+        validate(data, schema)
+        return True
+    except ValidationError:
+        return False
 
-
-# Note model
-class Note(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(100))
-    content = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
-    user_id = db.Column(db.String(50))
-
-# User model
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(50), unique=True)
-    password = db.Column(db.String(100))
-    api_key = db.Column(db.String(100), unique=True)
-    api_name = db.Column(db.String(50))
-
-
-
-# create tables
-with app.app_context():
-    db.create_all()
-
-# dashboard
-@app.route('/dashboard', methods=['GET'])
-def dashboard():
-    auth_header = request.headers.get('Authorization')
-    if auth_header:
-        token = auth_header.split(" ")[1]
-        try:
-            payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
-            user_id = payload['user_id']
-            # TODO: do something with the user_id to fetch user data from DB or perform some other action
-            return jsonify({'message': 'Welcome to your dashboard!'})
-        except jwt.ExpiredSignatureError:
-            return jsonify({'message': 'Token has expired!'}), 401
-        except (jwt.InvalidTokenError, Exception):
-            return jsonify({'message': 'Invalid token!'}), 401
-    else:
-        return jsonify({'message': 'Authorization header is missing!'}), 401
-
-# create a new user
-@app.route('/signup', methods=['POST'])
-def create_user():
+# User registration
+@app.route('/register', methods=['POST'])
+def register():
     data = request.get_json()
-    new_user = User(
-        username=data['username'],
-        password=data['password'],
-        api_key=str(uuid.uuid4()),
-        api_name=data['api_name']
-    )
-    db.session.add(new_user)
-    db.session.commit()
-    return jsonify({
-        'message': 'New user created!',
-        'api_key': new_user.api_key,
-        'api_name': new_user.api_name
-    })
+    email = data['email']
+    password = data['password']
+    name = data['name']
 
-# authentication decorator
-def token_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = request.headers.get('Authorization')
-        if not token:
-            return jsonify({'message': 'Token is missing!'}), 401
-        try:
-            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
-            current_user = User.query.filter_by(id=data['user_id']).first()
-        except:
-            return jsonify({'message': 'Token is invalid!'}), 401
-        return f(current_user, *args, **kwargs)
-    return decorated
+    # Check if the email already exists
+    if mongo.db.users.find_one({'email': email}):
+        return jsonify({'error': 'Email already exists'})
+
+    # Hash the password
+    hashed_password = generate_password_hash(password)
+
+    # Insert the user into the database
+    user_id = mongo.db.users.insert_one({'name': name, 'email': email, 'password': hashed_password}).inserted_id
+
+    return jsonify({'message': 'User registered successfully', 'user_id': str(user_id)})
 
 
-# login user
+
+# User login
 @app.route('/login', methods=['POST'])
 def login():
-    data = request.json
-    if not data or not data.get('username') or not data.get('password'):
-        return make_response('Invalid username or password', 401, {'WWW-Authenticate': 'Basic realm="Login required!"'})
-
-    user = User.query.filter_by(username=data['username']).first()
-    if not user or user.password != data['password']:
-        return make_response('Invalid username or password', 401, {'WWW-Authenticate': 'Basic realm="Login required!"'})
-
-    token = jwt.encode({'user_id': user.id, 'exp': datetime.datetime.utcnow() + datetime.timedelta(minutes=30)}, app.config['SECRET_KEY'])
-    return jsonify({'token': token})
-
-
-
-# get all notes for a specific user
-@app.route('/<api_name>/notes', methods=['GET'])
-def get_all_notes(api_name):
-    api_key = request.headers.get('api_key')
-    if not api_key:
-        return jsonify({'message': 'Missing API key!'}), 401
-    user = User.query.filter_by(api_key=api_key, api_name=api_name).first()
-    if not user:
-        return jsonify({'message': 'Invalid API key!'}), 401
-    notes = Note.query.filter_by(user_id=user.id).all()
-    output = []
-    for note in notes:
-        note_data = {'id': note.id, 'title': note.title, 'content': note.content, 'created_at': note.created_at}
-        output.append(note_data)
-    return jsonify({'notes': output})
-
-
-# get a specific note for a specific user
-@app.route('/<api_name>/notes/<note_id>', methods=['GET'])
-def get_note_by_id(api_name, note_id):
-    api_key = request.headers.get('api_key')
-    if not api_key:
-        return jsonify({'message': 'Missing API key!'}), 401
-    user = User.query.filter_by(api_key=api_key).first()
-    if not user:
-        return jsonify({'message': 'Invalid API key!'}), 401
-    note = Note.query.filter_by(id=note_id, user_id=user.id).first()
-    if not note:
-        return jsonify({'message': 'Note not found!'}), 404
-    note_data = {'id': note.id, 'title': note.title, 'content': note.content, 'created_at': note.created_at}
-    return jsonify({'note': note_data})
-
-
-# create a new note for a specific user
-@app.route('/<api_name>/notes', methods=['POST'])
-def create_note(api_name):
-    api_key = request.headers.get('api_key')
-    if not api_key:
-        return jsonify({'message': 'Missing API key!'}), 401
-    user = User.query.filter_by(api_key=api_key).first()
-    if not user:
-        return jsonify({'message': 'Invalid API key!'}), 401
     data = request.get_json()
-    new_note = Note(title=data['title'], content=data['content'], user_id=user.id)
-    db.session.add(new_note)
-    db.session.commit()
-    return jsonify({'message': 'New note created!', 'note_id': new_note.id})
+    email = data['email']
+    password = data['password']
 
-# update an existing note for a specific user
-@app.route('/<api_name>/notes/<note_id>', methods=['PUT'])
-def update_note_by_id(note_id):
-    api_key = request.headers.get('api_key')
-    user = User.query.filter_by(api_key=api_key).first()
+    # Find the user by email
+    user = mongo.db.users.find_one({'email': email})
+
+    # Check if the user exists
     if not user:
-        return jsonify({'message': 'Invalid API key!'}), 401
-    note = Note.query.filter_by(id=note_id, user_id=user.id).first()
-    if not note:
-        return jsonify({'message': 'Note not found!'}), 404
+        return jsonify({'error': 'Invalid email or password'})
+
+    # Check if the password is correct
+    if not check_password_hash(user['password'], password):
+        return jsonify({'error': 'Invalid email or password'})
+
+    # Generate a token (you can use a more secure method for production)
+    access_token = create_access_token(identity=str(user['_id']))
+
+    # Save the token in the database
+    mongo.db.tokens.insert_one({'user_id': user['_id'], 'token': access_token})
+
+    return jsonify({'message': 'Login successful', 'access_token': access_token})
+
+# Function to generate a unique API name
+def generate_unique_api_name(api_name):
+    # Remove spaces and convert to lowercase
+    api_name = api_name.replace(" ", "").lower()
+
+    # Check if the API name already exists
+    existing_api = mongo.db.apis.find_one({'api_name': api_name})
+    if not existing_api:
+        return api_name
+
+    # Generate a random suffix
+    suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+    return api_name + "_" + suffix
+
+# Create API
+@app.route('/create_api', methods=['POST'])
+@jwt_required()
+def create_api():
     data = request.get_json()
-    note.title = data.get('title', note.title)
-    note.content = data.get('content', note.content)
-    db.session.commit()
-    return jsonify({'message': 'Note updated!', 'note_id': note.id})
+    api_name = data['api_name']
+    endpoints = data['endpoints']
+    json_schema = data['json_schema']
+
+    # Generate a unique API name
+    api_name = generate_unique_api_name(api_name)
+
+    # Get the user ID from the JWT token
+    user_id = get_jwt_identity()
+
+    # Generate a unique API key
+    api_key = str(ObjectId())
+
+    # Insert the API into the database along with the user ID
+    api_id = mongo.db.apis.insert_one({'api_name': api_name, 'api_key': api_key, 'endpoints': endpoints, 'json_schema': json_schema, 'user_id': user_id}).inserted_id
+
+    return jsonify({'message': 'API created successfully', 'api_name': api_name, 'api_key': api_key, 'endpoints': endpoints})
+
+# Retrieve all APIs for the user
+@app.route('/api', methods=['GET'])
+@jwt_required()
+def get_user_apis():
+    # Get the user ID from the JWT token
+    user_id = get_jwt_identity()
+
+    # Retrieve the APIs associated with the user ID
+    apis = list(mongo.db.apis.find({'user_id': user_id}))
+
+    # Prepare the response data
+    response = []
+    for api in apis:
+        api_data = {
+            'api_id': str(api['_id']),
+            'api_name': api['api_name'],
+            'api_key': api['api_key'],
+            'endpoints': api['endpoints']
+        }
+        response.append(api_data)
+
+    return jsonify({'apis': response})
 
 
-# delete a note for a specific user
-@app.route('/<api_name>/notes/<note_id>', methods=['DELETE'])
-def delete_note_by_id(note_id):
-    api_key = request.headers.get('api_key')
-    user = User.query.filter_by(api_key=api_key).first()
-    if not user:
-        return jsonify({'message': 'Invalid API key!'}), 401
-    note = Note.query.filter_by(id=note_id, user_id=user.id).first()
-    if not note:
-        return jsonify({'message': 'Note not found!'}), 404
-    db.session.delete(note)
-    db.session.commit()
-    return jsonify({'message': 'Note deleted!', 'note_id': note.id})
+# Retrieve a single API by ID
+@app.route('/api/<api_id>', methods=['GET'])
+@jwt_required()
+def get_api(api_id):
+    # Get the user ID from the JWT token
+    user_id = get_jwt_identity()
+
+    # Retrieve the API associated with the given ID and user ID
+    api = mongo.db.apis.find_one({'_id': ObjectId(api_id), 'user_id': user_id})
+
+    if not api:
+        return jsonify({'error': 'API not found'})
+
+    # Prepare the response data
+    response = {
+        'api_id': str(api['_id']),
+        'api_name': api['api_name'],
+        'api_key': api['api_key'],
+        'endpoints': api['endpoints']
+    }
+
+    return jsonify({'api': response})
+
+
+# Create a new record in an endpoint
+@app.route('/api/<api_name>/<endpoint>', methods=['POST'])
+def create_record(api_name, endpoint):
+    # Check if the API name and API key are valid
+    api = mongo.db.apis.find_one({'api_name': api_name, 'api_key': request.headers.get('api_key')})
+    if not api:
+        return jsonify({'error': 'Invalid API name or API key'})
+
+    # Check if the endpoint exists in the API
+    if endpoint not in api['endpoints']:
+        return jsonify({'error': 'Invalid endpoint'})
+
+    # Get the JSON schema for validation
+    json_schema = api['json_schema'][endpoint]
+
+    # Validate the request data against the JSON schema
+    data = request.get_json()
+    if not validate_json(data, json_schema):
+        return jsonify({'error': 'Invalid request data'})
+
+    # Insert the record into the endpoint collection
+    record_id = mongo.db[endpoint].insert_one(data).inserted_id
+
+    return jsonify({'message': 'Record created successfully', 'record_id': str(record_id)})
+
+
+# Read records from an endpoint
+@app.route('/api/<api_name>/<endpoint>', methods=['GET'])
+def read_records(api_name, endpoint):
+    # Check if the API name and API key are valid
+    api = mongo.db.apis.find_one({'api_name': api_name, 'api_key': request.headers.get('api_key')})
+    if not api:
+        return jsonify({'error': 'Invalid API name or API key'})
+
+    # Check if the endpoint exists in the API
+    if endpoint not in api['endpoints']:
+        return jsonify({'error': 'Invalid endpoint'})
+
+    # Retrieve records from the endpoint collection
+    records = list(mongo.db[endpoint].find())
+
+    # Convert ObjectId to string for JSON serialization
+    for record in records:
+        record['_id'] = str(record['_id'])
+
+    return jsonify({'data': records})
+
+# Read a record from an endpoint by ID
+@app.route('/api/<api_name>/<endpoint>/<record_id>', methods=['GET'])
+def read_record(api_name, endpoint, record_id):
+    # Check if the API name and API key are valid
+    api = mongo.db.apis.find_one({'api_name': api_name, 'api_key': request.headers.get('api_key')})
+    if not api:
+        return jsonify({'error': 'Invalid API name or API key'})
+
+    # Check if the endpoint exists in the API
+    if endpoint not in api['endpoints']:
+        return jsonify({'error': 'Invalid endpoint'})
+
+    # Retrieve the record from the endpoint collection
+    record = mongo.db[endpoint].find_one({'_id': ObjectId(record_id)})
+
+    if not record:
+        return jsonify({'error': 'Record not found'})
+
+    # Convert ObjectId to string for JSON serialization
+    record['_id'] = str(record['_id'])
+
+    return jsonify({'data': record})
+
+
+# Update a record in an endpoint
+@app.route('/api/<api_name>/<endpoint>/<record_id>', methods=['PUT'])
+def update_record(api_name, endpoint, record_id):
+    # Check if the API name and API key are valid
+    api = mongo.db.apis.find_one({'api_name': api_name, 'api_key': request.headers.get('api_key')})
+    if not api:
+        return jsonify({'error': 'Invalid API name or API key'})
+
+    # Check if the endpoint exists in the API
+    if endpoint not in api['endpoints']:
+        return jsonify({'error': 'Invalid endpoint'})
+
+    # Check if the record exists in the endpoint collection
+    record = mongo.db[endpoint].find_one({'_id': ObjectId(record_id)})
+    if not record:
+        return jsonify({'error': 'Record not found'})
+
+    # Validate the request data against the JSON schema
+    json_schema = api['json_schema'][endpoint]
+    data = request.get_json()
+    if not validate_json(data, json_schema):
+        return jsonify({'error': 'Invalid request data'})
+
+    # Update the record in the endpoint collection
+    mongo.db[endpoint].update_one({'_id': ObjectId(record_id)}, {'$set': data})
+
+    return jsonify({'message': 'Record updated successfully'})
+
+
+# Delete a record from an endpoint
+@app.route('/api/<api_name>/<endpoint>/<record_id>', methods=['DELETE'])
+def delete_record(api_name, endpoint, record_id):
+    # Check if the API name and API key are valid
+    api = mongo.db.apis.find_one({'api_name': api_name, 'api_key': request.headers.get('api_key')})
+    if not api:
+        return jsonify({'error': 'Invalid API name or API key'})
+
+    # Check if the endpoint exists in the API
+    if endpoint not in api['endpoints']:
+        return jsonify({'error': 'Invalid endpoint'})
+
+    # Check if the record exists in the endpoint collection
+    record = mongo.db[endpoint].find_one({'_id': ObjectId(record_id)})
+    if not record:
+        return jsonify({'error': 'Record not found'})
+
+    # Delete the record from the endpoint collection
+    mongo.db[endpoint].delete_one({'_id': ObjectId(record_id)})
+
+    return jsonify({'message': 'Record deleted successfully'})
 
 
 if __name__ == '__main__':
