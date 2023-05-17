@@ -20,7 +20,7 @@ To create a new API, send a POST request to the **/create_api** endpoint with a 
 
 **Retrieving APIs**
 
-To retrieve all APIs associated with a user, send a GET request to the** /api** endpoint with a valid access token in the request header. The endpoint will return a JSON object containing all the user's APIs.
+To retrieve all APIs associated with a user, send a GET request to the **/api** endpoint with a valid access token in the request header. The endpoint will return a JSON object containing all the user's APIs.
 
 To retrieve a single API by ID, send a GET request to the **/api/<api_id>** endpoint with a valid access token in the request header and the ID of the desired API in the URL. The endpoint will return a JSON object containing the API data.
 
