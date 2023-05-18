@@ -10,8 +10,6 @@ import string
 from bson import ObjectId
 from flask_cors import CORS
 
-
-
 app = Flask(__name__)
 app.config['MONGO_URI'] = 'mongodb://localhost:27017/mydatabase'
 app.config['JWT_SECRET_KEY'] = 'your_secret_key'  # Replace with your own secret key
@@ -213,7 +211,7 @@ def delete_api(api_id):
     return jsonify({'message': 'API deleted successfully'})
 
 
-# Create a new record in an endpoint
+# Create a new record or multiple records in an endpoint
 @app.route('/api/<api_name>/<endpoint>', methods=['POST'])
 def create_record(api_name, endpoint):
     # Check if the API name and API key are valid
@@ -230,50 +228,65 @@ def create_record(api_name, endpoint):
 
     # Validate the request data against the JSON schema
     data = request.get_json()
-    if not validate_json(data, json_schema):
-        return jsonify({'error': 'Invalid request data'})
+    if isinstance(data, list):  # If the request contains multiple data items
+        for item in data:
+            if not validate_json(item, json_schema):
+                return jsonify({'error': 'Invalid request data'})
+        
+        # Insert the records into the endpoint collection
+        record_ids = []
+        for item in data:
+            record_id = mongo.db[endpoint].insert_one(item).inserted_id
+            record_ids.append(str(record_id))
+        
+        return jsonify({'message': 'Records created successfully', 'record_ids': record_ids})
+    else:  # If the request contains a single data item
+        if not validate_json(data, json_schema):
+            return jsonify({'error': 'Invalid request data'})
 
-    # Insert the record into the endpoint collection
-    record_id = mongo.db[endpoint].insert_one(data).inserted_id
+        # Insert the record into the endpoint collection
+        record_id = mongo.db[endpoint].insert_one(data).inserted_id
 
-    return jsonify({'message': 'Record created successfully', 'record_id': str(record_id)})
+        return jsonify({'message': 'Record created successfully', 'record_id': str(record_id)})
 
 
-# Read records from an endpoint
+
 @app.route('/api/<api_name>/<endpoint>', methods=['GET'])
 def read_records(api_name, endpoint):
-    # Check if the API name and API key are valid
     api = mongo.db.apis.find_one({'api_name': api_name, 'api_key': request.headers.get('api_key')})
     if not api:
         return jsonify({'error': 'Invalid API name or API key'})
 
-    # Check if the endpoint exists in the API
     if endpoint not in api['endpoints']:
         return jsonify({'error': 'Invalid endpoint'})
+
+    # Get the page and per_page parameters from the query string
+    page = int(request.args.get('page', 1))
+    per_page = int(request.args.get('per_page', 10))
+
+    # Calculate the starting index and ending index for pagination
+    start_index = (page - 1) * per_page
+    end_index = start_index + per_page
 
     # Retrieve records from the endpoint collection
     records = []
 
-    # Get the filter parameter from the query string
     filter_param = request.args.get('q')
-    
+
     if filter_param:
-        # Convert the filter parameter to a dictionary
         try:
             filter_dict = eval(filter_param)
-            # Retrieve filtered records from the endpoint collection
-            records = list(mongo.db[endpoint].find(filter_dict))
+            records = list(mongo.db[endpoint].find(filter_dict).skip(start_index).limit(per_page))
         except:
             return jsonify({'error': 'Invalid filter parameter'})
     else:
-        # Retrieve all records from the endpoint collection
-        records = list(mongo.db[endpoint].find())
+        records = list(mongo.db[endpoint].find().skip(start_index).limit(per_page))
 
-    # Convert ObjectId to string for JSON serialization
     for record in records:
         record['_id'] = str(record['_id'])
 
     return jsonify({'data': records})
+
 
 # Read a record from an endpoint by ID
 @app.route('/api/<api_name>/<endpoint>/<record_id>', methods=['GET'])
