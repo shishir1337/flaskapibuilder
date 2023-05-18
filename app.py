@@ -186,6 +186,32 @@ def get_api(api_id):
 
     return jsonify({'api': response})
 
+# Delete an API
+@app.route('/api/<api_id>', methods=['DELETE'])
+@jwt_required()
+def delete_api(api_id):
+    # Get the user ID from the JWT token
+    user_id = get_jwt_identity()
+
+    # Find the API associated with the given ID and user ID
+    api = mongo.db.apis.find_one({'_id': ObjectId(api_id), 'user_id': user_id})
+
+    if not api:
+        return jsonify({'error': 'API not found or you do not have permission to delete it'})
+
+    # Delete the API
+    mongo.db.apis.delete_one({'_id': ObjectId(api_id), 'user_id': user_id})
+
+    # Delete the endpoints and their records
+    for endpoint in api['endpoints']:
+        # Delete the endpoint
+        mongo.db.apis.delete_one({'api_name': api['api_name'], 'endpoints': endpoint})
+
+        # Delete the records in the endpoint collection
+        mongo.db[endpoint].delete_many({})
+
+    return jsonify({'message': 'API deleted successfully'})
+
 
 # Create a new record in an endpoint
 @app.route('/api/<api_name>/<endpoint>', methods=['POST'])
