@@ -8,6 +8,8 @@ from jsonschema import validate, ValidationError
 import random
 import string
 from bson import ObjectId
+from flask_cors import CORS
+
 
 
 app = Flask(__name__)
@@ -15,6 +17,7 @@ app.config['MONGO_URI'] = 'mongodb://localhost:27017/mydatabase'
 app.config['JWT_SECRET_KEY'] = 'your_secret_key'  # Replace with your own secret key
 mongo = PyMongo(app)
 jwt = JWTManager(app)
+CORS(app)
 
 def validate_json(data, schema):
     try:
@@ -85,6 +88,29 @@ def generate_unique_api_name(api_name):
     suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
     return api_name + "_" + suffix
 
+# Function to generate unique endpoints
+def generate_unique_endpoints(endpoints):
+    unique_endpoints = []
+    for endpoint in endpoints:
+        unique_endpoint = generate_unique_endpoint(endpoint)
+        unique_endpoints.append(unique_endpoint)
+    return unique_endpoints
+
+# Function to generate a unique endpoint name
+def generate_unique_endpoint(endpoint):
+    # Remove spaces and convert to lowercase
+    endpoint = endpoint.replace(" ", "").lower()
+
+    # Check if the endpoint already exists
+    existing_endpoint = mongo.db.apis.find_one({'endpoints': endpoint})
+    if not existing_endpoint:
+        return endpoint
+
+    # Generate a random suffix
+    suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+    return endpoint + "_" + suffix
+
+
 # Create API
 @app.route('/create_api', methods=['POST'])
 @jwt_required()
@@ -97,6 +123,9 @@ def create_api():
     # Generate a unique API name
     api_name = generate_unique_api_name(api_name)
 
+    # Generate unique endpoints
+    unique_endpoints = generate_unique_endpoints(endpoints)
+
     # Get the user ID from the JWT token
     user_id = get_jwt_identity()
 
@@ -104,9 +133,10 @@ def create_api():
     api_key = str(ObjectId())
 
     # Insert the API into the database along with the user ID
-    api_id = mongo.db.apis.insert_one({'api_name': api_name, 'api_key': api_key, 'endpoints': endpoints, 'json_schema': json_schema, 'user_id': user_id}).inserted_id
+    api_id = mongo.db.apis.insert_one({'api_name': api_name, 'api_key': api_key, 'endpoints': unique_endpoints, 'json_schema': json_schema, 'user_id': user_id}).inserted_id
 
-    return jsonify({'message': 'API created successfully', 'api_name': api_name, 'api_key': api_key, 'endpoints': endpoints})
+    return jsonify({'message': 'API created successfully', 'api_name': api_name, 'api_key': api_key, 'endpoints': unique_endpoints})
+
 
 # Retrieve all APIs for the user
 @app.route('/api', methods=['GET'])
@@ -130,6 +160,7 @@ def get_user_apis():
         response.append(api_data)
 
     return jsonify({'apis': response})
+
 
 
 # Retrieve a single API by ID
