@@ -250,7 +250,7 @@ def create_record(api_name, endpoint):
         return jsonify({'message': 'Record created successfully', 'record_id': str(record_id)})
 
 
-
+# Read records from an endpoint
 @app.route('/api/<api_name>/<endpoint>', methods=['GET'])
 def read_records(api_name, endpoint):
     api = mongo.db.apis.find_one({'api_name': api_name, 'api_key': request.headers.get('api_key')})
@@ -282,10 +282,23 @@ def read_records(api_name, endpoint):
     else:
         records = list(mongo.db[endpoint].find().skip(start_index).limit(per_page))
 
+    # Sort records if 'sort' query parameter is provided
+    sort_param = request.args.get('sort')
+    if sort_param:
+        sort_dict = {}
+        sort_fields = sort_param.split(',')
+        for field in sort_fields:
+            if field.startswith('-'):
+                sort_dict[field[1:]] = -1  # Sort in descending order
+            else:
+                sort_dict[field] = 1  # Sort in ascending order
+        records.sort(key=lambda x: tuple(x.get(field) for field in sort_fields), reverse=False)
+
     for record in records:
         record['_id'] = str(record['_id'])
 
     return jsonify({'data': records})
+
 
 
 # Read a record from an endpoint by ID
