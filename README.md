@@ -1,61 +1,230 @@
-**API Authentication and Authorization System**
+# User Registration
+### Endpoint: `/register`
+Method: POST
 
-This is a Flask-based API authentication and authorization system that allows users to register, log in, and create APIs with unique keys for their endpoints. The system includes secure password hashing, validation of JSON data, and the ability to retrieve all APIs associated with a user.
-
-**Getting Started**
-
-To use this system, you will need to have Python, Flask, and MongoDB installed on your machine. Once you have those dependencies, you can clone the repository and run the Flask app with the command python app.py.
-
-**User Registration**
-
-To register a new user, send a POST request to the **/register** endpoint with a JSON payload containing the user's name, email, and password. If the email is already in use, the endpoint will return an error.
-
-**User Login**
-
-To log in as an existing user, send a POST request to the **/login** endpoint with a JSON payload containing the user's email and password. If the email or password is incorrect, the endpoint will return an error.
-
-**Creating APIs**
-
-To create a new API, send a POST request to the **/create_api** endpoint with a JSON payload containing the desired API name, endpoints, and JSON schema. The endpoint will generate a unique API name and key for the user and store the API in the MongoDB database.
-
-POST /create_api HTTP/1.1
-Content-Type: application/json
-Authorization: Bearer <access_token>
+Request Body:
+```json
 
 {
+  "name": "John Doe",
+  "email": "johndoe@example.com",
+  "password": "password123"
+}
+```
+Response:
+```json
+{
+  "message": "User registered successfully",
+  "user_id": "6153e72ebc25b346a1c7ce84"
+}
+```
+## User Login
+
+### Endpoint: `/login`
+
+Method: POST
+Request Body:
+```json
+{
+  "email": "johndoe@example.com",
+  "password": "password123"
+}
+```
+Response:
+```json
+{
+  "message": "Login successful",
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+## Create API
+## Endpoint: `/create_api`
+Method: POST
+Request Body:
+```json
+{
   "api_name": "My API",
-  "endpoints": ["endpoint1", "endpoint2"],
+  "endpoints": ["users", "products"],
   "json_schema": {
-    "endpoint1": {
+    "users": {
       "type": "object",
       "properties": {
         "name": {"type": "string"},
+        "email": {"type": "string"},
         "age": {"type": "integer"}
       },
-      "required": ["name", "age"]
+      "required": ["name", "email"]
     },
-    "endpoint2": {
+    "products": {
       "type": "object",
       "properties": {
-        "title": {"type": "string"},
-        "content": {"type": "string"}
+        "name": {"type": "string"},
+        "price": {"type": "number"},
+        "quantity": {"type": "integer"}
       },
-      "required": ["title", "content"]
+      "required": ["name", "price"]
     }
   }
 }
+```
+Headers:
+```makefile
+Authorization: Bearer <access_token>
+```
+Response:
+```json
+{
+  "message": "API created successfully",
+  "api_name": "myapi",
+  "api_key": "6153e7b5bc25b346a1c7ce85",
+  "endpoints": ["users", "products"]
+}
+```
+## Retrieve User APIs
+### Endpoint: `/api`
+Method: GET
+Headers:
+```makefile
+Authorization: Bearer <access_token>
+```
+Response:
+```json
+{
+  "apis": [
+    {
+      "api_id": "6153e7b5bc25b346a1c7ce86",
+      "api_name": "myapi",
+      "api_key": "6153e7b5bc25b346a1c7ce85",
+      "endpoints": ["users", "products"]
+    }
+  ]
+}
+```
+## Retrieve a Single API
+### Endpoint: `/api/<api_id>`
+Method: GET
+Headers:
+```makefile
+Authorization: Bearer <access_token>
+```
+Response:
+```json
+{
+  "api": {
+    "api_id": "6153e7b5bc25b346a1c7ce86",
+    "api_name": "myapi",
+    "api_key": "6153e7b5bc25b346a1c7ce85",
+    "endpoints": ["users", "products"]
+  }
+}
+```
+## Delete API
+## Endpoint: `/api/<api_id>`
+Method: DELETE
+Headers:
+```makefile
+Authorization: Bearer <access_token>
+```
+Response:
+```json
+{
+  "message": "API deleted successfully"
+}
+```
+## Create Record(s)
+## Endpoint: `/api/<api_name>/<endpoint>`
+Method: POST
+Headers:
+```makefile
+Authorization: Bearer <access_token>
+```
+Request Body:
+```json
+{
+  "data": [
+    {"name": "John Doe", "email": "johndoe@example.com", "age": 25},
+    {"name": "Jane Smith", "email": "janesmith@example.com", "age": 30}
+  ]
+}
+```
+Response:
+```json
+{
+  "message": "Records created successfully",
+  "record_ids": ["6153e7b5bc25b346a1c7ce87", "6153e7b5bc25b346a1c7ce88"]
+}
+```
+## Read Records
+## Endpoint: `/api/<api_name>/<endpoint>`
+Method: GET
+Headers:
+```makefile
+Authorization: Bearer <access_token>
+```
+Query Parameters:
+page (optional): Page number for pagination (e.g., `page=2&per_page=4`)
 
+limit (optional): Number of records per page
 
-**Retrieving APIs**
+filter (optional): Filter criteria as key-value pairs (e.g., `filter=name:John Doe`)
 
-To retrieve all APIs associated with a user, send a GET request to the **/api** endpoint with a valid access token in the request header. The endpoint will return a JSON object containing all the user's APIs.
+sort (optional): Sort criteria as key-value pairs (e.g., `sort=age:desc`)
 
-To retrieve a single API by ID, send a GET request to the **/api/<api_id>** endpoint with a valid access token in the request header and the ID of the desired API in the URL. The endpoint will return a JSON object containing the API data.
-
-**Creating Records**
-
-To create a new record in an endpoint, send a POST request to the **/api/<api_name>/<endpoint>** endpoint with a valid API key in the request header and a JSON payload containing the data to be stored.
-
-**Conclusion**
-
-This API authentication and authorization system provides a secure and efficient way for users to manage their APIs and endpoint data. With Flask, MongoDB, and JWT token-based authentication, this system is easily scalable and adaptable to various use cases.
+Response:
+```json
+{
+  "records": [
+    {"_id": "6153e7b5bc25b346a1c7ce87", "name": "John Doe", "email": "johndoe@example.com", "age": 25},
+    {"_id": "6153e7b5bc25b346a1c7ce88", "name": "Jane Smith", "email": "janesmith@example.com", "age": 30}
+  ],
+  "total_records": 2,
+  "page": 1,
+  "total_pages": 1
+}
+```
+## Read Record
+## Endpoint: `/api/<api_name>/<endpoint>/<record_id>`
+Method: GET
+Headers:
+```makefile
+Authorization: Bearer <access_token>
+```
+Response:
+```json
+{
+  "record": {"_id": "6153e7b5bc25b346a1c7ce87", "name": "John Doe", "email": "johndoe@example.com", "age": 25}
+}
+```
+## Update Record
+### Endpoint: `/api/<api_name>/<endpoint>/<record_id>`
+Method: PUT
+Headers:
+```makefile
+Authorization: Bearer <access_token>
+```
+Request Body:
+```json
+{
+  "name": "John Updated",
+  "age": 26
+}
+```
+Response:
+```json
+{
+  "message": "Record updated successfully"
+}
+```
+## Delete Record
+### Endpoint: `/api/<api_name>/<endpoint>/<record_id>`
+Method: DELETE
+Headers:
+```makefile
+Authorization: Bearer <access_token>
+```
+Response:
+```json
+{
+  "message": "Record deleted successfully"
+}
+```
